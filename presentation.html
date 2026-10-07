@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CS50 Cybersecurity Final Project - The XZ Utils Backdoor (CVE-2024-3094)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@300;400;600;700;800&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0a0e17;
+      --bg-card: #111827;
+      --bg-card-hover: #1f2937;
+      --border-color: #243047;
+      --accent-cyan: #06b6d4;
+      --accent-blue: #3b82f6;
+      --accent-red: #ef4444;
+      --accent-green: #10b981;
+      --accent-yellow: #f59e0b;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --font-heading: 'Outfit', sans-serif;
+      --font-body: 'Inter', sans-serif;
+      --font-mono: 'Fira Code', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Control Bar */
+    header.control-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 24px;
+      background: rgba(17, 24, 39, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-color);
+      z-index: 100;
+      font-size: 0.9rem;
+    }
+
+    .brand-title {
+      font-family: var(--font-heading);
+      font-weight: 700;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge-cve {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--accent-red);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .controls-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .timer-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #030712;
+      border: 1px solid var(--border-color);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+    }
+
+    .timer-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      transition: background 0.3s;
+    }
+
+    .timer-status-text {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin-left: 4px;
+    }
+
+    button.btn {
+      background: #1f2937;
+      color: #fff;
+      border: 1px solid var(--border-color);
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    button.btn:hover {
+      background: #374151;
+      border-color: var(--accent-cyan);
+    }
+
+    button.btn-primary {
+      background: var(--accent-blue);
+      border-color: var(--accent-blue);
+    }
+    button.btn-primary:hover {
+      background: #2563eb;
+    }
+
+    /* Main Stage */
+    main.presentation-stage {
+      flex: 1;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      padding: 24px;
+    }
+
+    .slide {
+      position: absolute;
+      width: 92%;
+      max-width: 1250px;
+      height: 85%;
+      background: linear-gradient(145deg, #111827 0%, #0d131f 100%);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 44px 56px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7), 0 0 25px 0 rgba(6, 182, 212, 0.05);
+      opacity: 0;
+      visibility: hidden;
+      transform: scale(0.97) translateY(15px);
+      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow-y: auto;
+    }
+
+    .slide.active {
+      opacity: 1;
+      visibility: visible;
+      transform: scale(1) translateY(0);
+      z-index: 10;
+    }
+
+    /* Slide Typography */
+    .slide-header {
+      margin-bottom: 24px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .slide-category {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--accent-cyan);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .slide-title {
+      font-family: var(--font-heading);
+      font-size: 2.1rem;
+      font-weight: 800;
+      color: #ffffff;
+      line-height: 1.2;
+    }
+
+    .slide-number {
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      color: var(--text-muted);
+    }
+
+    .slide-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Grid Layouts */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      height: 100%;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    /* Cards */
+    .card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 22px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .card:hover {
+      border-color: rgba(6, 182, 212, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .card-title {
+      font-family: var(--font-heading);
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card p, .card li {
+      font-size: 0.95rem;
+      color: #d1d5db;
+      line-height: 1.6;
+    }
+
+    .card ul {
+      padding-left: 20px;
+      margin-top: 8px;
+    }
+
+    .card li {
+      margin-bottom: 6px;
+    }
+
+    /* Slide 1 Compliance Box */
+    .compliance-box {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-top: 16px;
+    }
+
+    .compliance-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-top: 12px;
+    }
+
+    .meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .meta-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .meta-value {
+      font-family: var(--font-mono);
+      font-size: 1rem;
+      color: #fff;
+      font-weight: 600;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px dashed rgba(255, 255, 255, 0.2);
+    }
+
+    .editable-input {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-color);
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      padding: 6px 10px;
+      border-radius: 6px;
+      width: 100%;
+    }
+    .editable-input:focus {
+      outline: none;
+      border-color: var(--accent-cyan);
+    }
+
+    /* Alert Banner */
+    .alert-banner {
+      background: rgba(239, 68, 68, 0.1);
+      border-left: 4px solid var(--accent-red);
+      padding: 12px 18px;
+      border-radius: 0 8px 8px 0;
+      font-size: 0.9rem;
+      color: #fca5a5;
+    }
+
+    /* Code / Technical blocks */
+    .code-block {
+      background: #030712;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: #38bdf8;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+
+    /* Diagram visualizer */
+    .flow-diagram {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 20px 0;
+    }
+
+    .flow-step {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      position: relative;
+    }
+
+    .flow-step.highlight {
+      border-color: var(--accent-red);
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    .flow-arrow {
+      color: var(--accent-cyan);
+      font-size: 1.4rem;
+      font-weight: bold;
+    }
+
+    /* Speaker Notes Drawer */
+    .notes-drawer {
+      position: fixed;
+      right: 0;
+      bottom: 0;
+      top: 53px;
+      width: 440px;
+      background: #0f172a;
+      border-left: 1px solid var(--border-color);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      z-index: 90;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .notes-drawer.open {
+      transform: translateX(0);
+    }
+
+    .notes-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+
+    .notes-header h3 {
+      font-family: var(--font-heading);
+      color: var(--accent-yellow);
+      font-size: 1.1rem;
+    }
+
+    .notes-content {
+      flex: 1;
+      overflow-y: auto;
+      color: #e2e8f0;
+      font-size: 0.95rem;
+      line-height: 1.7;
+    }
+
+    .notes-timing {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: var(--accent-yellow);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Comparison Table */
+    table.custom-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+
+    table.custom-table th {
+      background: rgba(255, 255, 255, 0.05);
+      text-align: left;
+      padding: 10px 14px;
+      color: var(--accent-cyan);
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    table.custom-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.9rem;
+      color: #d1d5db;
+    }
+
+    table.custom-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    /* Bottom Nav Bar */
+    footer.nav-bar {
+      padding: 12px 24px;
+      background: rgba(17, 24, 39, 0.95);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 50;
+    }
+
+    .progress-track {
+      flex: 1;
+      height: 6px;
+      background: #1f2937;
+      border-radius: 3px;
+      margin: 0 24px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+      width: 10%;
+      transition: width 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Control Bar -->
+  <header class="control-bar">
+    <div class="brand-title">
+      <span>HARVARD CS50 CYBERSECURITY</span>
+      <span class="badge-cve">CVE-2024-3094</span>
+    </div>
+
+    <div class="controls-group">
+      <!-- Recording Stopwatch for 7-10 min strict window -->
+      <div class="timer-container" title="Presentation duration counter. Aim for 7:00 to 10:00.">
+        <div class="timer-dot" id="timerDot"></div>
+        <span id="timerDisplay">00:00</span>
+        <span class="timer-status-text" id="timerStatus">(Target: 7-10m)</span>
+      </div>
+      <button class="btn" id="startTimerBtn" onclick="toggleTimer()">Start Timer</button>
+      <button class="btn" id="resetTimerBtn" onclick="resetTimer()">Reset</button>
+
+      <div style="width: 1px; height: 24px; background: var(--border-color); margin: 0 4px;"></div>
+
+      <button class="btn" id="toggleNotesBtn" onclick="toggleNotes()">
+        <span>📝 Speaker Script</span>
+      </button>
+      <button class="btn" onclick="toggleFullscreen()">
+        <span>⛶ Fullscreen</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Presentation Stage -->
+  <main class="presentation-stage">
+
+    <!-- Slide 1: Mandatory Compliance Title Slide -->
+    <section class="slide active" id="slide-1">
+      <div class="slide-header">
+        <div>
+          <div class="slide-category">CS50 Cybersecurity Final Project • Slide 1 of 10</div>
+          <h1 class="slide-title">The Ghost in the Tarball: Deconstructing the XZ Utils Backdoor</h1>
+        </div>
+        <div class="slide-number">01 / 10</div>
+      </div>
+      <div class="slide-content">
+        <div class="alert-banner">
+          <strong>Mandatory Presentation Checklist:</strong> At the start of your recording, you must verbally introduce your name, usernames, recording date, incident month/year (March 2024), CVE-2024-3094, and state why you picked this topic.
+        </div>
+
+        <div class="compliance-box">
+          <h3 style="font-family: var(--font-heading); color: var(--accent-green); margin-bottom: 4px;">
+            ✓ Submission & Identification Metadata (Visible on Slide 1)
+          </h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+            You can customize these fields directly below before recording your screencast:
+          </p>
+          <div class="compliance-grid">
+            <div class="meta-item">
+              <span class="meta-label">Student Name:</span>
+              <input type="text" class="editable-input" value="Your Full Name" id="inputName">
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Location (Optional):</span>
+              <input type="text" class="editable-input" value="City, Country" id="inputLoc">
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">edX Username:</span>
+              <input type="text" class="editable-input" value="your_edx_username" id="inputEdx">
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">GitHub Username:</span>
+              <input type="text" class="editable-input" value="omsg5368" id="inputGithub">
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Recording Date:</span>
+              <input type="text" class="editable-input" value="October 8, 2026" id="inputDate">
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Incident Occurrence & CVE:</span>
+              <div class="meta-value" style="border-style: solid; border-color: var(--accent-red);">
+                March 2024 • CVE-2024-3094 (CVSS 10.0)
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 10px;">
+          <div class="card-title">🎯 Project Scope & Context</div>
+          <p>
+            An exhaustive examination of the upstream compromise of <code>xz-utils</code> (<code>liblzma</code>), targeting OpenSSH's <code>sshd</code> authentication pipeline via GNU Indirect Function (IFUNC) resolution. Caught by an observant engineer prior to production distribution deployment.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2: Executive Summary & The 500ms Anomaly -->
+    <section class="slide" id="slide-2">
+      <div class="slide-header">
+        <div>
+          <div class="slide-category">Incident Overview</div>
+          <h2 class="slide-title">The Accidental Discovery: A 500ms Anomaly</h2>
+        </div>
+        <div class="slide-number">02 / 10</div>
+      </div>
+      <div class="slide-content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">🔍 The Discovery (March 29, 2024)</div>
+            <ul>
+              <li><strong>Engineer:</strong> Andres Freund (PostgreSQL developer, Microsoft).</li>
+              <li><strong>Symptom:</strong> SSH connection micro-benchmarks exhibited a <strong>500ms latency spike</strong> and abnormal CPU consumption on Debian testing.</li>
+              <li><strong>Profiling:</strong> Memory sanitizer <code>valgrind</code> flagged suspicious reads and illegal access patterns originating from <code>liblzma.so</code>.</li>
+              <li><strong>Resolution:</strong> Uncovered a multi-stage obfuscated payload embedded into release tarballs for versions <code>5.6.0</code> and <code>5.6.1</code>.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="card-title">⚠️ Target Scope & Catastrophic Potential</div>
+            <ul>
+              <li><strong>Vulnerability:</strong> Pre-authentication Remote Code Execution (RCE) with full <code>root</code> privileges via OpenSSH.</li>
+              <li><strong>Affected Packages:</strong> Debian Unstable (Sid), Fedora 40 / Rawhide, openSUSE Tumbleweed, Arch Linux, Kali Linux.</li>
+              <li><strong>Caught in the Nick of Time:</strong> Discovered mere days before landing in long-term enterprise production operating systems (Ubuntu 24.04 LTS & Debian Stable).</li>
+              <li><strong>CVSS Vector:</strong> <code>10.0 Critical</code> (Highest possible severity).</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="code-block">
+$ valgrind sshd -d
+==18429== Invalid read of size 8
+==18429==    at 0x4893120: ??? (in /usr/lib/x86_64-linux-gnu/liblzma.so.5.6.0)
+==18429==    by 0x4842109: _dl_relocate_object (in /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2)
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: Explicit Relation to CS50 Cybersecurity -->
+    <section class="slide" id="slide-3">
+      <div class="slide-header">
+        <div>
+          <div class="slide-category">Curriculum Alignment</div>
+          <h2 class="slide-title">Intersection with CS50 Cybersecurity</h2>
+        </div>
+        <div class="slide-number">03 / 10</div>
+      </div>
+      <div class="slide-content">
+        <div class="grid-4">
+          <div class="card">
+            <div class="card-title">💻 Software Security</div>
+            <p>
+              Exploitation of build automation pipelines (Autotools/M4) and compiler toolchains. Multi-stage binary payload carving hidden inside innocuous test suites.
+            </p>
+          </div>
+          <div class="card">
+            <div class="card-title">⚙️ System & OS Architecture</div>
+            <p>
+              Deep manipulation of the ELF dynamic linker (<code>ld-linux</code>), GNU Indirect Functions (<code>IFUNC</code>), and the Global Offset Table (<code>GOT</code>).
+            </p>
+          </div>
+          <div class="card">
+            <div class="card-title">🔐 Cryptography & Auth</div>
+            <p>
+              Interception of OpenSSL’s <code>RSA_public_decrypt</code> routine. Threat actor implemented Ed448 signature verification as a cryptographic gatekeeper.
+            </p>
+          </div>
+          <div class="card">
+            <div class="card-title">👥 Social Engineering & Trust</div>
+            <p>
+              A 2+ year psychological operation targeting volunteer maintainer fatigue using sockpuppet accounts to coerce transfer of repository commit rights.
+            </p>
+          </div>
+        </div>
+
+        <div class="alert-banner" style="background: rgba(6, 182, 212, 0.1); border-left-color: var(--accent-cyan); color: #bae6fd;">
+          <strong>Course Staff Note:</strong> This attack bypassed classic vulnerability categories (no memory corruption, buffer overflow, or SQLi in code); it was an architectural assault on the foundation of modern software supply chains.
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: Phase 1 – The Long-Con Social Engineering Campaign -->
+    <section class="slide" id="slide-4">
+      <div class="slide-header">
+        <div>
+          <div class="slide-category">Attack Timeline</div>
+          <h2 class="slide-title">Phase 1: Infiltrating the Supply Chain (2021–2024)</h2>
+        </div>
+        <div class="slide-number">04 / 10</div>
+      </div>
+      <div class="slide-content">
+        <div class="grid-3">
+          <div class="card">
+            <div class="card-title">1. Building Credibility</div>
+            <p><strong>Late 2021:</strong> Threat actor adopts persona <code>Jia Tan</code> (<code>@JiaT75</code>).</p>
+            <p>Submits genuine bug fixes, documentation updates, and valid feature improvements across various open-source compression projects to establish a clean track record.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-title">2. Exploiting Maintainer Burnout</div>
+            <p><strong>2022:</strong> XZ Utils sole maintainer, Lasse Collin, suffers burnout and personal strain.</p>
+            <p>Coordinated sockpuppet accounts (<code>Dennis Ens</code>, <code>Jigar Kumar</code>) bombard public mailing lists demanding updates and attacking Collin’s responsiveness.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-title">3. Gaining Commit & Signing Keys</div>
+            <p><strong>2023–2024:</strong> Lasse Collin hands over co-maintainership to Jia Tan.</p>
+            <p>Jia Tan begins authoring releases, gains PGP key signing authority, weakens <code>CMake</code> security tests, and prepares downstream distribution hooks.</p>
+          </div>
+        </div>
+
+        <div class="code-block" style="color: #cbd5e1;">
+[Mailing List Excerpt - 2022]
+Dennis Ens: "Progress will not happen until there is a new maintainer... Lasse, why not pass it to someone who has time?"
+Lasse Collin: "I haven't lost interest, but my ability to care has been fairly limited... Jia Tan has helped a lot."
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: Phase 2 – The Multi-Stage Build Injection Pipeline -->
+    <section class="slide" id="slide-5">
+      <div class="slide-header">
+        <div>
+          <div class="slide-category">Technical Mechanics</div>
+          <h2 class="slide-title">Phase 2: The Multi-Stage Build Injection Pipeline</h2>
+        </div>
+        <div class="slide-number">05 / 10</div>
+      </div>
+      <div class="slide-content">
+        <div class="card">
+          <div class="card-title">📦 Ghost in the Tarball: Clean Git Tree vs. Malicious Release</div>
+          <p>The malicious code was <strong>never committed to the official GitHub git repository</strong>. It was injected strictly into the official upstream release tarballs during packaging.</p>
+        </div>
+
+        <div class="flow-diagram">
+          <div class="flow-step">
+            <div style="font-weight: 700; color: var(--accent-cyan);">Upstream Tarball</div>
+            <p style="font-size: 0.8rem; margin-top: 4px;">Contains modified <code>m4/build-to-host.m4</code></p>
+          </div>
+          <div class="flow-arrow">➔</div>
+          <div class="flow-step">
+            <div style="font-weight: 700; color: var(--accent-yellow);">Target Validation</div>
+            <p style="font-size: 0.8rem; margin-top: 4px;">Linux x86-64 + GCC/Clang + DEB/RPM build</p>
+          </div>
+          <div class="flow-arrow">➔</div>
+          <div class="flow-step highlight">
+            <div style="font-weight: 700; color: var(--accent-red);">Steganographic Extraction</div>
+            <p style="font-size: 0.8rem; margin-top: 4px;">Slices extracted from <code>bad-3-corrupt_lzma2.xz</code></p>
+          </div>
+          <div class="flow-arrow">➔</div>
+          <div class="flow-step highlight">
+            <div style="font-weight: 700; color: var(--accent-red);">Object Injection</div>
+            <p style="font-size: 0.8rem; margin-top: 4px;">Pre-compiled <code>.o</code> injected into <code>liblzma.so</code></p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🛡️ Evasion Engineering</div>
+          <p>
+            If built on macOS, Windows, FreeBSD, or under standalone developer compilation, the build script exited cleanly and injected nothing. The backdoor only assembled inside production Linux distribution packaging pipelines!
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: Phase 3 – Deep Technical Execution: The IFUNC Hook -->
+    <section class="slide" id="slide-6">
+      <div class="slide-header">
+        <div>
+          <div class="slide-category">Low-Level System Internals</div>
+          <h2 class="slide-title">Phase 3: Deep Technical Execution – The IFUNC Hook</h2>
+        </div>
+        <div class="slide-number">06 / 10</div>
+      </div>
+      <div class="slide-content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">🔗 How sshd Reached liblzma</div>
+            <ul>
+              <li>OpenSSH upstream does <strong>not</strong> link against <code>liblzma</code>.</li>
+              <li>Major Linux distros patched OpenSSH with <code>libsystemd</code> for startup notification (<code>sd_notify</code>).</li>
+              <li><code>libsystemd</code> linked against <code>liblzma</code> for log compression.</li>
+              <li><strong>Result:</strong> <code>liblzma.so</code> loaded directly inside root-owned <code>sshd</code> process space!</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="card-title">⚡ GNU Indirect Functions (IFUNC)</div>
+            <ul>
+              <li><code>IFUNC</code> enables dynamic runtime selection of CPU-optimized functions (e.g. CRC64).</li>
+              <li>IFUNC resolver functions execute <strong>prior</strong> to glibc RELRO (Relocation Read-Only) memory protection.</li>
+              <li>The backdoor hijacked symbol resolution, traversed memory, and redirected OpenSSL's <code>RSA_public_decrypt</code> function pointer in the Global Offset Table (GOT).</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="code-block">
+[Dynamic Linker Execution Sequence]
+1. sshd launches -> glibc loads libsystemd.so -> loads liblzma.so
+2. glibc invokes IFUNC resolver for CRC64 in liblzma
+3. Backdoor IFUNC executes *before* RELRO memory lock
+4. Backdoor locates OpenSSL symbol: RSA_public_decrypt()
+5. GOT pointer hijacked: RSA_public_decrypt -> backdoor_handler()
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: Phase 4 – The Payload & Remote Code Execution Mechanics -->
+    <section class="slide" id="slide-7">
+      <div class="slide-header">
+        <div>
+          <div class="slide-category">Exploit Mechanics</div>
+          <h2 class="slide-title">Phase 4: Remote Code Execution & Cryptographic Verification</h2>
+        </div>
+        <div class="slide-number">07 / 10</div>
+      </div>
+      <div class="slide-content">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">🔑 The SSH Certificate Handshake Hook</div>
+            <ul>
+              <li>Attacker connects over standard SSH port 22.</li>
+              <li>When client sends an RSA public key certificate, <code>sshd</code> invokes <code>RSA_public_decrypt()</code>.</li>
+              <li>Control transfers to the backdoor's handler.</li>
+              <li>The backdoor parses the client's supplied public certificate structure.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="card-title">🛡️ Cryptographic Gatekeeping (Ed448)</div>
+            <ul>
+              <li>Payload payload is signed with the attacker's private key.</li>
+              <li>Backdoor verifies signature using a <strong>hardcoded Ed448 public key</strong>.</li>
+              <li><strong>Zero Replay / No Unauthorized Exploitation:</strong> No scanner, honeypot, or other researcher could trigger the backdoor without the private key!</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card" style="border-color: var(--accent-red);">
+          <div class="card-title" style="color: var(--accent-red);">💥 Execution & Stealth Log Suppression</div>
+          <p>
+            • <strong>If Ed448 Signature Matches:</strong> Decrypts embedded shell payload and invokes <code>system()</code> to execute arbitrary commands as <code>root</code>. Disables OpenSSH connection audit logging.<br>
+            • <strong>If Invalid or Standard User:</strong> Passes control seamlessly to the original OpenSSL <code>RSA_public_decrypt()</code>. No crash, normal authentication continues, zero traces left behind.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: Why Traditional Security Controls Failed -->
+    <section class="slide" id="slide-8">
+      <div class="slide-header">
+        <div>
+          <div class="slide-category">Failure Analysis</div>
+          <h2 class="slide-title">Why Traditional Security Controls Failed</h2>
+        </div>
+        <div class="slide-number">08 / 10</div>
+      </div>
+      <div class="slide-content">
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Security Mechanism</th>
+              <th>Intended Protection</th>
+              <th>How the XZ Backdoor Evaded It</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Git Code Review</strong></td>
+              <td>Detect malicious commits</td>
+              <td>Backdoor code was never committed to git; injected solely into release tarballs.</td>
+            </tr>
+            <tr>
+              <td><strong>Antivirus / EDR</strong></td>
+              <td>Detect malicious binaries</td>
+              <td>Payload was split across test files and assembled at compile-time in memory.</td>
+            </tr>
+            <tr>
+              <td><strong>Compiler Warnings</strong></td>
+              <td>Detect unsafe code patterns</td>
+              <td>Attacker submitted prior commits specifically suppressing compiler checks.</td>
+            </tr>
+            <tr>
+              <td><strong>Memory RELRO</strong></td>
+              <td>Prevent GOT pointer overwrites</td>
+              <td>Backdoor executed during IFUNC resolution *before* RELRO enforced read-only memory.</td>
+            </tr>
+            <tr>
+              <td><strong>Fuzzing & Scanners</strong></td>
+              <td>Discover reachable exploits</td>
+              <td>Attacker Ed448 cryptographic verification blocked unauthenticated triggers.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Slide 9: Strategic Recommendations & Engineering Countermeasures -->
+    <section class="slide" id="slide-9">
+      <div class="slide-header">
+        <div>
+          <div class="slide-category">Remediation & Defense</div>
+          <h2 class="slide-title">Recommendations & Engineering Countermeasures</h2>
+        </div>
+        <div class="slide-number">09 / 10</div>
+      </div>
+      <div class="slide-content">
+        <div class="grid-4">
+          <div class="card">
+            <div class="card-title">1. Dependency Least Privilege</div>
+            <p>
+              Prune transitive dependencies in privileged daemons. OpenSSH refactored its socket activation code to avoid linking <code>libsystemd</code> and <code>liblzma</code> altogether.
+            </p>
+          </div>
+          <div class="card">
+            <div class="card-title">2. Hermetic SLSA Builds</div>
+            <p>
+              Adopt <strong>SLSA Level 3+</strong>. Distribution packages must be compiled strictly from auditable Git commit SHAs, eliminating untracked release tarballs from the trust chain.
+            </p>
+          </div>
+          <div class="card">
+            <div class="card-title">3. Linker Hardening</div>
+            <p>
+              Restrict or strictly audit <code>IFUNC</code> resolvers in security-sensitive shared libraries. Restrict dynamic library symbol overriding in daemon address spaces.
+            </p>
+          </div>
+          <div class="card">
+            <div class="card-title">4. Open Source Governance</div>
+            <p>
+              Fund critical digital infrastructure (e.g., OpenSSF). Mandate multi-maintainer cryptographic code signing and protect volunteer developers from burnout.
+            </p>
+          </div>
+        </div>
+
+        <div class="alert-banner" style="background: rgba(16, 185, 129, 0.1); border-left-color: var(--accent-green); color: #a7f3d0;">
+          <strong>Core Principle:</strong> Defense-in-depth must encompass not just runtime execution, but the entire human, organizational, and compilation pipeline.
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 10: Conclusion & References -->
+    <section class="slide" id="slide-10">
+      <div class="slide-header">
+        <div>
+          <div class="slide-category">Summary & Citations</div>
+          <h2 class="slide-title">Conclusion & Authoritative References</h2>
+        </div>
+        <div class="slide-number">10 / 10</div>
+      </div>
+      <div class="slide-content">
+        <div class="card">
+          <div class="card-title">📌 Key Takeaways</div>
+          <p>
+            The XZ Utils backdoor marks a watershed moment in modern cybersecurity. It demonstrated that state-sponsored or elite threat actors will invest years in social engineering and toolchain subversion. Ultimately, human curiosity and performance profiling saved the global internet.
+          </p>
+        </div>
+
+        <div class="card" style="margin-top: 10px;">
+          <div class="card-title">📚 References & Primary Sources</div>
+          <ul style="font-size: 0.9rem; color: #cbd5e1;">
+            <li><strong>Freund, Andres (March 2024):</strong> <em>"backdoor in upstream xz/liblzma leading to sshd accept-call hijacking."</em> Openwall oss-security mailing list.</li>
+            <li><strong>CISA (April 2024):</strong> <em>Alert: Vulnerability in XZ Utils Affecting Multiple Linux Distributions (CVE-2024-3094).</em></li>
+            <li><strong>Valsorda, Filippo (April 2024):</strong> <em>"Inside the XZ Utils Backdoor"</em> — Cryptographic & IFUNC technical breakdown.</li>
+            <li><strong>Boehm, Evan (March 2024):</strong> <em>"Everything I Know About the XZ Backdoor"</em> — Social engineering timeline analysis.</li>
+            <li><strong>Harvard CS50:</strong> <em>Introduction to Cybersecurity course lecture materials on Software, Systems, and Authentication.</em></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Slide Notes Drawer -->
+  <aside class="notes-drawer" id="notesDrawer">
+    <div class="notes-header">
+      <h3>Presenter Script & Notes</h3>
+      <button class="btn" onclick="toggleNotes()">✕ Close</button>
+    </div>
+    <div class="notes-timing">
+      <span id="notesSlideIndicator">Slide 1 of 10</span>
+      <span id="notesTimeTarget">Target: 0:00 - 0:45</span>
+    </div>
+    <div class="notes-content" id="notesText">
+      Loading presenter script...
+    </div>
+  </aside>
+
+  <!-- Bottom Navigation Bar -->
+  <footer class="nav-bar">
+    <button class="btn" id="prevBtn" onclick="prevSlide()">◀ Previous</button>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <span style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted); margin-right: 14px;" id="slideIndicator">Slide 1 / 10</span>
+    <button class="btn btn-primary" id="nextBtn" onclick="nextSlide()">Next ▶</button>
+  </footer>
+
+  <script>
+    const slides = document.querySelectorAll('.slide');
+    let currentSlide = 0;
+
+    const scripts = [
+      {
+        timing: "0:00 - 0:45 (45s)",
+        text: `\"Hello everyone, and welcome to my final project presentation for Harvard University's CS50’s Introduction to Cybersecurity. My name is [Your Name], joining from [Your City]. My edX username is [Your edX], and my GitHub username is [Your GitHub].\\n\\nToday is [Date], and this video is being recorded on this date.\\n\\nThe security incident I will be deconstructing today occurred in March 2024, cataloged under CVE-2024-3094 with a critical CVSS score of 10.0: the upstream backdoor inserted into XZ Utils and liblzma.\\n\\nI chose this specific incident because it represents the most sophisticated software supply chain attack in computing history, and crucially, an attack caught before it manifested in global production systems. It directly ties into our course’s core curriculum on software security, system architecture, authentication bypass, and social engineering.\"`
+      },
+      {
+        timing: "0:45 - 1:35 (50s)",
+        text: `\"To understand how this attack was uncovered, we must look at an accidental discovery made on March 29th, 2024, by an observant engineer named Andres Freund at Microsoft.\\n\\nFreund was conducting micro-benchmarks on PostgreSQL installations across Debian testing environments. He noticed that SSH connections were experiencing an unexpected latency delay of approximately 500 milliseconds and consuming abnormal CPU. Valgrind profiling on sshd flagged unexpected memory errors inside liblzma.so.\\n\\nFreund dug deeper and uncovered a covert backdoor embedded in XZ Utils versions 5.6.0 and 5.6.1 designed to grant unauthenticated root-level RCE via SSH. The backdoor was caught literally days before these packages were scheduled to land in enterprise production distributions like Ubuntu 24.04 LTS and Debian Stable.\"`
+      },
+      {
+        timing: "1:35 - 2:30 (55s)",
+        text: `\"This incident serves as a real-world masterclass across our CS50 Cybersecurity curriculum.\\n\\nFirst, in Software Security, it illustrates how attackers exploit the seam between version control and distribution build systems, evading code review through multi-stage obfuscation.\\n\\nSecond, in Operating Systems and Memory Architecture, the backdoor leverages ELF binary loader internals, manipulating GNU Indirect Functions (IFUNCs) and altering the Global Offset Table before memory protections take effect.\\n\\nThird, in Authentication and Cryptography, the attacker hooked into OpenSSL's RSA decryption pipeline and enforced an asymmetric cryptographic gatekeeper using Ed448 signatures.\\n\\nFinally, in Human Factors and Social Engineering, this intrusion was enabled by a two-year campaign exploiting volunteer maintainer fatigue.\"`
+      },
+      {
+        timing: "2:30 - 3:30 (60s)",
+        text: `\"Let us examine how this intrusion began. The attacker operated under the pseudonym 'Jia Tan', using GitHub handle JiaT75.\\n\\nStarting in late 2021, Jia Tan contributed helpful pull requests—fixing minor bugs and building technical credibility.\\n\\nAt the time, XZ Utils was maintained solely by Lasse Collin, who was suffering from severe burnout and mental exhaustion.\\n\\nIn 2022, a coordinated astroturfing campaign began. Sockpuppet accounts like 'Dennis Ens' and 'Jigar Kumar' aggressively pressured Collin on public mailing lists, demanding he hand over maintainership to Jia Tan.\\n\\nCollin granted Jia Tan co-maintainer status and commit rights. Over two years, the attacker patiently made over 500 legitimate commits, gradually disabling test sandboxes and preparing distribution packaging workflows.\"`
+      },
+      {
+        timing: "3:30 - 4:40 (70s)",
+        text: `\"Now, let's examine the technical mechanics. What makes CVE-2024-3094 remarkable is that auditing the public GitHub repository revealed zero malicious source code.\\n\\nThe attacker exploited the discrepancy between the git tree and the official release tarball. When release tarballs for 5.6.0 and 5.6.1 were generated, Jia Tan injected a modified M4 Autotools script called build-to-host.m4.\\n\\nDuring compilation, the script checked environment conditions: Linux on x86-64, GCC or Clang, and inside a Debian or Red Hat package build.\\n\\nIf met, it extracted raw encrypted slices of machine code hidden inside two innocent-looking test files: bad-3-corrupt_lzma2.xz and good-large_compressed.lzma. The script assembled an unstripped pre-compiled object file and linked it directly into liblzma.so.\"`
+      },
+      {
+        timing: "4:40 - 5:50 (70s)",
+        text: `\"Why would a compression library affect OpenSSH's sshd?\\n\\nUpstream OpenSSH does not link against liblzma. However, major distributions like Debian, Fedora, and Ubuntu patched OpenSSH to link libsystemd for socket activation notification. And libsystemd dynamically links liblzma for log decompression. Thus, liblzma was loaded directly into sshd's root memory space!\\n\\nTo seize control without crashing, the backdoor abused GNU Indirect Functions, or IFUNCs. IFUNC is a glibc feature allowing runtime selection of CPU-optimized functions (like CRC64).\\n\\nCrucially, IFUNC resolvers execute before Relocation Read-Only (RELRO) locks down memory! The backdoor's IFUNC resolver traversed memory, located OpenSSL's RSA_public_decrypt entry point, and redirected its Global Offset Table pointer to the backdoor's handler.\"`
+      },
+      {
+        timing: "5:50 - 6:45 (55s)",
+        text: `\"What happened when a client connected over the network?\\n\\nWhen a client initiates an SSH handshake with an RSA public key certificate, sshd calls RSA_public_decrypt. Control diverts to the backdoor.\\n\\nHere, the attacker introduced cryptographic gatekeeping: the backdoor verified the payload's signature against a hardcoded Ed448 public key. Only the attacker holding the private key could trigger it!\\n\\nIf an unauthorized client or security researcher connected, the signature failed, and the backdoor seamlessly passed control to the real RSA_public_decrypt without crashing or logging abnormal events.\\n\\nIf the Ed448 signature was valid, the backdoor decrypted an embedded shell command and executed it directly via system() as root—providing invisible, unauthenticated root access!\"`
+      },
+      {
+        timing: "6:45 - 7:35 (50s)",
+        text: `\"Reflecting on this failure, why did traditional defenses fail?\\n\\nGit Code Review failed because the malicious code never existed in version control; it was injected strictly into release artifacts.\\n\\nAntivirus & EDR failed because the payload was fragmented across test assets and assembled only during compilation.\\n\\nMemory protections like RELRO were bypassed because the IFUNC mechanism executed before memory relocations were finalized.\\n\\nAnd fuzzing or vulnerability scanners could not trigger the payload due to the attacker's required Ed448 cryptographic key.\\n\\nThe attack was a masterclass in stealth operational security.\"`
+      },
+      {
+        timing: "7:35 - 8:25 (50s)",
+        text: `\"To prevent catastrophic failures of this nature, we must implement four fundamental engineering countermeasures:\\n\\n1. Dependency Least Privilege: Eliminate unnecessary transitive dependencies in high-privilege software. OpenSSH has since refactored socket activation to avoid linking libsystemd or liblzma.\\n\\n2. Hermetic and Verifiable Builds: Software distributions must adopt SLSA Level 3+. Distro packages must be built strictly from verified git commit SHAs, eliminating untracked tarballs from the trust chain.\\n\\n3. Hardening Dynamic Linkers: Restrict or audit IFUNC resolvers in security-sensitive shared libraries to prevent arbitrary code execution before memory lockdown.\\n\\n4. Sustaining Open-Source Infrastructure: Foundational open-source libraries require institutional funding, automated fuzzing pipelines, and multi-party cryptographic release signing.\"`
+      },
+      {
+        timing: "8:25 - 8:50 (25s)",
+        text: `\"In conclusion, CVE-2024-3094 demonstrates that the most dangerous security vulnerabilities are rarely flaws in mathematical encryption; rather, they are vulnerabilities in the complex supply chains of human trust and software builds. Andres Freund's discovery highlights the vital role of curiosity and low-level performance profiling in modern defense.\\n\\nMy research drew on Andres Freund's disclosure, CISA advisories, technical reversing analyses by Filippo Valsorda, and our CS50 Cybersecurity course principles.\\n\\nThank you very much for your time and attention!\"`
+      }
+    ];
+
+    function showSlide(index) {
+      if (index < 0 || index >= slides.length) return;
+      slides[currentSlide].classList.remove('active');
+      currentSlide = index;
+      slides[currentSlide].classList.add('active');
+
+      document.getElementById('slideIndicator').innerText = `Slide ${currentSlide + 1} / ${slides.length}`;
+      document.getElementById('progressFill').style.width = `${((currentSlide + 1) / slides.length) * 100}%`;
+
+      document.getElementById('prevBtn').disabled = currentSlide === 0;
+      document.getElementById('nextBtn').innerText = currentSlide === slides.length - 1 ? 'Finish 🏁' : 'Next ▶';
+
+      updateNotes();
+    }
+
+    function nextSlide() {
+      if (currentSlide < slides.length - 1) {
+        showSlide(currentSlide + 1);
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 0) {
+        showSlide(currentSlide - 1);
+      }
+    }
+
+    function toggleNotes() {
+      const drawer = document.getElementById('notesDrawer');
+      drawer.classList.toggle('open');
+    }
+
+    function updateNotes() {
+      const data = scripts[currentSlide];
+      document.getElementById('notesSlideIndicator').innerText = `Slide ${currentSlide + 1} of ${slides.length}`;
+      document.getElementById('notesTimeTarget').innerText = `Target: ${data.timing}`;
+      document.getElementById('notesText').innerText = data.text;
+    }
+
+    // Keyboard navigation
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        nextSlide();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        prevSlide();
+      } else if (e.key.toLowerCase() === 'n') {
+        toggleNotes();
+      } else if (e.key.toLowerCase() === 'f') {
+        toggleFullscreen();
+      }
+    });
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+
+    // Stopwatch Timer
+    let timerInterval = null;
+    let timerSeconds = 0;
+
+    function toggleTimer() {
+      const btn = document.getElementById('startTimerBtn');
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        btn.innerText = 'Resume';
+      } else {
+        timerInterval = setInterval(() => {
+          timerSeconds++;
+          const mins = Math.floor(timerSeconds / 60);
+          const secs = timerSeconds % 60;
+          document.getElementById('timerDisplay').innerText = 
+            `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+          const dot = document.getElementById('timerDot');
+          const status = document.getElementById('timerStatus');
+
+          if (timerSeconds < 420) { // < 7 mins
+            dot.style.background = 'var(--accent-green)';
+            status.innerText = `(Keep going: ${Math.floor((420 - timerSeconds)/60)}m to 7m)`;
+            status.style.color = 'var(--text-muted)';
+          } else if (timerSeconds <= 600) { // 7 - 10 mins (SWEET SPOT)
+            dot.style.background = 'var(--accent-cyan)';
+            status.innerText = '✓ IN COMPLIANCE (7-10m window)';
+            status.style.color = 'var(--accent-cyan)';
+          } else { // > 10 mins (Over limit)
+            dot.style.background = 'var(--accent-red)';
+            status.innerText = '⚠️ OVERTIME (>10m)! Wrap up!';
+            status.style.color = 'var(--accent-red)';
+          }
+        }, 1000);
+        btn.innerText = 'Pause';
+      }
+    }
+
+    function resetTimer() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      timerSeconds = 0;
+      document.getElementById('timerDisplay').innerText = '00:00';
+      document.getElementById('startTimerBtn').innerText = 'Start Timer';
+      document.getElementById('timerDot').style.background = 'var(--accent-green)';
+      document.getElementById('timerStatus').innerText = '(Target: 7-10m)';
+      document.getElementById('timerStatus').style.color = 'var(--text-muted)';
+    }
+
+    // Initial load
+    updateNotes();
+  </script>
+</body>
+</html>
